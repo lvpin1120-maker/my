@@ -1,0 +1,96 @@
+<div class="pill">先记住一句话：管理端管配置，执行引擎跑流程，网关调用模型。</div>
+<h2>两个仓库，不只有两种职责</h2>
+<p>你说的“管理端”通常对应 dify-engine 里的 manager 服务。但 dify-engine 仓库还包含 platform 服务，也就是 AI 工作流执行引擎。llm-proxy-moa 是另一个仓库，承担大模型网关职责。先把这三块分开，后面读代码会清楚得多。</p>
+<div class="flow"><div class="flowbox"><strong>管理端 Manager</strong><span>谁能用、用哪些模型、应用配置、版本与发布</span></div><span class="flowarrow">配置与发布 →</span><div class="flowbox"><strong>执行引擎 Platform</strong><span>读工作流，执行节点，传变量，处理分支与结果</span></div><span class="flowarrow">需要模型 →</span><div class="flowbox"><strong>大模型网关 Gateway</strong><span>鉴权、限流、路由、协议适配、调用厂商</span></div></div>
+<p class="notehint">这是职责关系图，不表示每次业务调用都必须顺序经过三个服务。业务方可以直接调用网关；管理端也会为了模型测试、生成向量或调试而调用 AI 服务。</p>
+
+<h2>1. 管理端：AI 平台的控制后台</h2>
+<p><strong>它解决的问题：</strong>如果每接一个业务、加一种模型、修改配置、发布一个工作流都要直接改代码，维护会很困难。管理端把这些信息和操作组织成后台能力，提供管理、审批、发布和查询入口。</p>
+<p><strong>谁用它：</strong>管理后台用户、平台运维或业务配置人员，以及需要获取配置的其他服务。它连接 MySQL，提供 MOA RPC 接口，还包含分发和代理能力。</p>
+<div class="tablewrap"><table><thead><tr><th>核心功能</th><th>白话解释</th><th>你先关心什么</th></tr></thead><tbody>
+<tr><td>工作空间与 API Key</td><td>把不同业务的资源和使用身份组织起来</td><td>空间、业务身份和调用凭证怎样关联；不能只凭表名假设权限已全部落实</td></tr>
+<tr><td>供应商与模型</td><td>登记模型来自哪里、有哪些能力、使用什么配置</td><td>逻辑模型名、厂商、实际模型、配置与凭证的区别</td></tr>
+<tr><td>模型连通测试</td><td>试着调用一次，判断当前配置能不能用</td><td>modelPing 怎样选模型、调用谁、失败怎么反馈</td></tr>
+<tr><td>应用与版本</td><td>保存 AI 应用和工作流配置，管理不同版本</td><td>编辑、创建版本、上线三个动作不应简单视为同一件事</td></tr>
+<tr><td>发布、灰度、回滚</td><td>决定哪份配置让哪些调用方使用</td><td>配置怎样生效，旧版本与新版本怎样区分</td></tr>
+<tr><td>知识库、标注与调试</td><td>维护检索数据，转发调试、查询运行记录</td><td>需要学 RAG 和排障时再深入</td></tr>
+<tr><td>价格、账单与审批</td><td>处理平台治理和成本相关业务</td><td>若非你负责且不写简历，先知道用途，暂不逐接口读</td></tr>
+</tbody></table></div>
+<p><strong>关键纠正：</strong>管理端不只是增删改查，它有配置组装、发布和跨服务调用；但它也不应被说成 DAG 执行器。实际 WorkflowRunner 在 platform 服务。</p>
+
+<h3>管理端优先关注的方法</h3>
+<p>下面是已在 Java API 定义与实现中核对的方法名。管理端使用 MOA RPC 和 dispatch 等入口，不能把这些名字直接猜成同名 HTTP URL。</p>
+<div class="tablewrap"><table><thead><tr><th>优先级</th><th>方法／入口</th><th>阅读目的</th></tr></thead><tbody>
+<tr><td>第一批</td><td>getModelConfigMap(corpUpper, crossEnvLlmProxyBaseUrl)</td><td>网关从管理端获取元配置与凭证的桥梁。实现委托给 ModelService.getMetaConfigAndCredentialConfig()</td></tr>
+<tr><td>第一批</td><td>modelList、infoModel、addModel、updateModel、modelPing</td><td>选择一次“查询→修改／新增→测试”的小闭环，不要求一晚读完全部方法</td></tr>
+<tr><td>第一批</td><td>workspaceList、infoWorkspace、providerList、infoProvider</td><td>明白模型属于哪个业务空间、由谁提供</td></tr>
+<tr><td>第二批</td><td>insertAgentApp、updateAgentApp、addAgentAppVersion</td><td>应用与工作流配置如何保存、形成版本</td></tr>
+<tr><td>第二批</td><td>operate、grayConfig、cancelGrayConfig</td><td>版本操作、灰度和取消灰度的边界</td></tr>
+<tr><td>第二批</td><td>debugTask、debugQuery、debugNode、sendChatMessage</td><td>管理端怎样转发调试或聊天到执行端；不是它自己在这里调度 DAG</td></tr>
+<tr><td>了解入口</td><td>dispatch(url, params, operatorInfo)</td><td>理解请求分发。没有读路由注册前，不猜每个前端 URL 的具体映射</td></tr>
+</tbody></table></div>
+
+<h2>2. 大模型网关：业务调用模型的统一入口</h2>
+<p><strong>它解决的问题：</strong>不同模型厂商的请求格式、鉴权、流式事件和错误不完全一样。如果每个业务直接接所有厂商，就会重复建设。网关提供统一接入，并把配置、调用治理与厂商差异集中处理。</p>
+<p><strong>谁用它：</strong>业务后端、工作流引擎以及支持兼容协议的调用端。网关不是训练大模型的服务，也不能因入口叫 AgentController 就推断它运行了完整 Agent 规划循环。</p>
+<div class="flow"><div class="flowbox"><strong>业务请求</strong><span>key、model、messages、stream</span></div><span class="flowarrow">→</span><div class="flowbox"><strong>网关编排</strong><span>身份 → 限流 → 路由 → Client → Processor</span></div><span class="flowarrow">→</span><div class="flowbox"><strong>厂商调用与返回</strong><span>协议转换、响应／SSE、错误、用量与指标</span></div></div>
+<div class="tablewrap"><table><thead><tr><th>核心功能</th><th>要理解的问题</th></tr></thead><tbody>
+<tr><td>协议兼容与转换</td><td>外部请求如何变成内部 ChatCompletion；厂商响应怎样转回来</td></tr>
+<tr><td>鉴权与业务识别</td><td>API Key 如何关联 business；谁负责校验与填充字段</td></tr>
+<tr><td>限流</td><td>当前具体实现限制什么，计数放哪里，多实例是否共享；不能只读抽象类下结论</td></tr>
+<tr><td>路由与 Client 管理</td><td>business+model 怎样找到配置，后续怎样选厂商和具体 Client</td></tr>
+<tr><td>普通与流式调用</td><td>一次完整 JSON 返回与持续输出的生命周期有什么不同</td></tr>
+<tr><td>健康、超时与清理</td><td>故障如何记录或影响选择，取消能否传到底层，资源怎样结束</td></tr>
+<tr><td>多类 AI 能力</td><td>除聊天外，仓库还存在 Embedding、Rerank、语音、生图、异步任务等入口；按任务需要深入</td></tr>
+</tbody></table></div>
+
+<h3>网关优先关注的 HTTP 接口</h3>
+<p class="notehint">路径来自 Controller 类级和方法级注解组合。外部域名、反向代理与环境前缀可能另有改写，这里不推断生产访问地址。</p>
+<div class="tablewrap"><table><thead><tr><th>优先级</th><th>Controller 路径</th><th>用途与入口</th></tr></thead><tbody>
+<tr><td>先学这个</td><td>POST /moai/agent/v1/chat/completions</td><td>AgentController.chatCompletions → processOpenai → doProcess → Pipeline。第一次选 stream=false</td></tr>
+<tr><td>随后</td><td>同上，stream=true</td><td>从同一入口观察 CHAT 与 CHAT_STREAM 的分支，追到 ChatStreamProcessor</td></tr>
+<tr><td>随后</td><td>POST /api/v1/chat/completions</td><td>AIGCGatewayController.chat。按 shouldUsePipeline 判断走新 Pipeline 或旧调用服务，别把两条流程混着学</td></tr>
+<tr><td>再学</td><td>POST /moai/agent/v1/messages</td><td>另一兼容协议入口，比较请求和流事件转换差异</td></tr>
+<tr><td>学 RAG 时</td><td>POST /api/v1/embeddings、/api/v1/embeddings/v2</td><td>将文本等输入转换为向量的调用入口；两个版本差异需分别读实现</td></tr>
+<tr><td>学 RAG 时</td><td>POST /api/v1/rerank</td><td>候选相关性重排</td></tr>
+<tr><td>后放</td><td>/api/v1/audio/speech、/api/v1/image/txt2img、/api/v1/async/submit 等</td><td>语音、生图、异步任务，先知道存在；如果实际由你负责，再提升优先级</td></tr>
+</tbody></table></div>
+<p><strong>第一次读代码的完整主线：</strong>AgentController → ProtocolCommon → Pipeline.process → Auth → Limit → ModelRouter → ProviderMoaiClient → Processor → 某一个具体模型调用。</p>
+<p>Controller 是 HTTP 入口；Pipeline 是编排服务；Processor 是处理抽象／实现；它们不是三个对外 HTTP 接口。先分清“外部接口”和“内部方法”。</p>
+
+<h2>3. 工作流执行引擎：把多个步骤串起来运行</h2>
+<p>如果业务需求是“检索知识→拼提示词→问模型→处理结果→返回”，单次模型调用不够。platform 服务读取工作流配置，建立节点与依赖，运行节点，传递变量，处理并发、失败、超时和结果。</p>
+<p><strong>例子：</strong>用户问报销规则 → Start 接收输入 → Knowledge 检索规则 → LLM 基于规则生成回答 → End 输出。这个例子用于理解，不代表已经确认生产存在这条具体流程。</p>
+<p>节点需要模型时，可以通过模型适配层调用网关；不是所有节点都调用网关。代码节点、变量处理或其他工具节点可以有不同执行路径。</p>
+<div class="tablewrap"><table><thead><tr><th>优先级</th><th>Controller 路径／内部入口</th><th>阅读目的</th></tr></thead><tbody>
+<tr><td>第一批</td><td>POST /v1/workflows/run</td><td>DifyEngineController.workflowRun：一般工作流运行入口</td></tr>
+<tr><td>第一批</td><td>POST /v1/chat-messages</td><td>聊天应用请求入口；与普通模型 chat/completions 不是同一层</td></tr>
+<tr><td>第一批</td><td>WorkflowRunner.build、runWithTaskId、run(state,node)</td><td>配置构建、一次执行状态、节点调度</td></tr>
+<tr><td>第一批</td><td>WorkflowRunState、VariablePool、BaseNode</td><td>当前执行的状态、变量与节点公共逻辑</td></tr>
+<tr><td>第二批</td><td>POST /v1/debug/task、/v1/debug/query、/v1/debug/node</td><td>提交调试、查询结果、单节点调试</td></tr>
+</tbody></table></div>
+
+<h2>4. 三者怎样合作：分清两条链路</h2>
+<h3>配置链路：系统知道“用什么、谁能用”</h3>
+<ol><li>后台人员在管理端维护工作空间、供应商、模型或应用版本。</li><li>管理端保存与组装相关配置。网关 ConfigCenter 存在获取管理端配置的代码，并按开关与配置源进行合并／刷新。</li><li>在当前源码中，国内分支可通过 getModelConfigMap RPC 获取，海外分支存在 HTTP 获取路径；实际走哪条取决于运行环境。</li><li>网关更新可用的路由、凭证和 Client 等缓存。应用版本发布与工作流配置生效是另一个需要单独追踪的链路。</li></ol>
+<p class="notehint">保存到数据库、组装配置、发布、网关刷新不是天然同一个原子动作。新旧配置源和开关也不能忽略。具体生效时序必须继续沿实现验证。</p>
+<h3>运行链路：一次业务请求如何得到结果</h3>
+<ol><li>业务直接调用网关：网关识别身份、路由并调用厂商，返回普通或流式响应。</li><li>业务调用工作流：执行引擎加载流程、创建当前执行状态、运行节点，模型节点按模型层实现请求网关，最终汇总或流式输出。</li><li>管理端的聊天／调试功能可以作为入口或代理，但不表示每次线上模型请求都先经过管理端。</li></ol>
+
+<h2>5. 你现在需要懂到什么程度</h2>
+<div class="tablewrap"><table><thead><tr><th>层次</th><th>本轮要求</th><th>暂时不用做</th></tr></thead><tbody>
+<tr><td>用途</td><td>各用一句话说明三者用途，举一个真实或明确标注为示例的业务场景</td><td>背所有模块名</td></tr>
+<tr><td>接口</td><td>一条非流式聊天接口的输入、输出、调用链与错误路径</td><td>读完每个厂商、语音和生图接口</td></tr>
+<tr><td>配置</td><td>说明业务、模型、厂商、凭证、Client 各是什么，配置怎样到网关</td><td>第一晚读所有审批和账单接口</td></tr>
+<tr><td>工作流</td><td>先看 Start→假节点／LLM→End，再看分支、状态和超时</td><td>立即理解完整条件分支与迭代调度</td></tr>
+<tr><td>个人贡献</td><td>写进简历的模块要能讲实现、理由、失败处理和本人改动</td><td>把旁观或学习理解说成亲自主导</td></tr>
+</tbody></table></div>
+
+<h2>6. 推荐的源码阅读顺序</h2>
+<ol><li>先读本页，只画职责关系，不写代码。</li><li>AgentController 的 processOpenai 和 doProcess。</li><li>Pipeline.process：先正常流程，再两个 catch。</li><li>ModelRouter.route，然后追到一个实际 Client／Processor。</li><li>ConfigCenter.getDifyEngineManagerMetaConfigByApi，再看 Manager 的 getModelConfigMap 与 ModelService.getMetaConfigAndCredentialConfig。</li><li>再学工作流接口与 WorkflowRunner，分清“调用模型”和“调度多个节点”。</li><li>最后扩展流式、并发、检索、调试和发布。</li></ol>
+<p><strong>今晚验收：</strong>能解释“为什么直接问模型只需要网关，而一个检索后回答的流程还需要工作流引擎；管理端在其中负责准备和管理什么”。说不清就重看关系图，不急着读复杂实现。</p>
+
+<h2>源码入口：复制到 IDE 查找</h2>
+<p>以下结论来自当前本地源码与项目文档核对，尚未启动系统验证运行环境。</p>
+<div class="toolbar"><button class="pathlink" data-copy="/Users/lv/Documents/code/dify-engine/dify-engine-manager-api/src/main/java/com/immomo/dify/manager/api/DifyEngineManagerService.java">管理端 API 定义 <span>复制路径 ↗</span></button><button class="pathlink" data-copy="/Users/lv/Documents/code/dify-engine/dify-engine-manager-service/src/main/java/com/immomo/dify/manager/service/impl/controller/DifyEngineManagerServiceImpl.java">管理端服务实现 <span>复制路径 ↗</span></button><button class="pathlink" data-copy="/Users/lv/Documents/code/dify-engine/dify-engine-manager-service/src/main/java/com/immomo/dify/manager/service/impl/service/ModelService.java">管理端 ModelService <span>复制路径 ↗</span></button><button class="pathlink" data-copy="/Users/lv/Documents/code/dify-engine/dify-engine-manager-service/src/main/java/com/immomo/dify/manager/service/impl/service/MoaiMetaConfigService.java">管理端配置组装 <span>复制路径 ↗</span></button><button class="pathlink" data-copy="/Users/lv/Documents/code/llm-proxy-moa/llm-proxy-moa-service/src/main/java/com/immomo/moai/service/controller/AgentController.java">网关 AgentController <span>复制路径 ↗</span></button><button class="pathlink" data-copy="/Users/lv/Documents/code/llm-proxy-moa/llm-proxy-moa-service/src/main/java/com/immomo/moai/service/controller/AIGCGatewayController.java">网关 AIGCGatewayController <span>复制路径 ↗</span></button><button class="pathlink" data-copy="/Users/lv/Documents/code/llm-proxy-moa/llm-proxy-moa-service/src/main/java/com/immomo/moai/service/pipeline/Pipeline.java">网关 Pipeline <span>复制路径 ↗</span></button><button class="pathlink" data-copy="/Users/lv/Documents/code/llm-proxy-moa/llm-proxy-moa-service/src/main/java/com/immomo/moai/service/config/ConfigCenter.java">网关 ConfigCenter <span>复制路径 ↗</span></button><button class="pathlink" data-copy="/Users/lv/Documents/code/dify-engine/dify-engine-platform-service/src/main/java/com/immomo/dify/platform/service/controller/DifyEngineController.java">工作流 HTTP Controller <span>复制路径 ↗</span></button><button class="pathlink" data-copy="/Users/lv/Documents/code/dify-engine/dify-engine-platform-service/src/main/java/com/immomo/dify/platform/service/workflow/WorkflowRunner.java">WorkflowRunner <span>复制路径 ↗</span></button></div>
+
