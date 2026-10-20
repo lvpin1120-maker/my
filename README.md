@@ -16,6 +16,20 @@ git clone https://github.com/lvpin1120-maker/my.git
 
 以后在仓库目录运行 `git pull` 获取更新。仅阅读无需安装 Python、Node.js 或启动服务。
 
+## 家里电脑也需要推送时
+
+Git 克隆会取得学习资料和源码，**不会取得公司电脑钥匙串里的凭证**。不要把 PAT 写进仓库、远端 URL 或提交历史。
+
+只阅读这个公开仓库无需 PAT。如果家里也要推送，在家里电脑终端进入克隆目录，运行一次：
+
+```sh
+python3 setup-credentials.py
+```
+
+Windows 安装 Python 后也可以运行 `py setup-credentials.py`。按提示输入 GitHub 用户名和 PAT，令牌输入会隐藏。脚本在 macOS 使用钥匙串，在其他系统优先使用已安装的 Git Credential Manager，或可用的 libsecret；没有安全凭证管理器时会停止，不退回明文存储。
+
+可在不同电脑分别安全配置同一个仍有效且有此仓库权限的 PAT；每台电脑需配置一次。此脚本仅修改当前仓库的本地 Git 配置，并按仓库路径匹配凭证。以后正常执行 `git push`，由本机系统凭证管理器提供认证。更换或撤销令牌后，需要更新各电脑保存的凭证。
+
 ## 内容
 
 - 管理端、工作流执行引擎、大模型网关的项目地图与重点接口。
