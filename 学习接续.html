@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>学习接续 · 2026-10-21</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:#233d36;background:#f5f4ef;line-height:1.8}
+*{box-sizing:border-box}body{max-width:840px;margin:0 auto;padding:30px 20px 60px}header,section{background:#fffefa;border:1px solid #dfe5db;border-radius:14px;padding:24px;margin-bottom:18px}h1{font-size:27px;line-height:1.4}h2{font-size:20px;margin-top:0}p,li{font-size:16px}li{margin-bottom:9px}a{color:#204b40}code{overflow-wrap:anywhere;background:#edf1e8;padding:2px 5px;border-radius:4px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#edf1e8;padding:16px;border-radius:9px;font-size:14px;line-height:1.8}textarea{font:inherit;line-height:1.8;width:100%;min-height:255px;padding:14px;color:inherit;background:#f8faf5;border:1px solid #b8c8b3;border-radius:8px}.tag{color:#697a6c;font-size:14px}strong{color:#173d35}@media(max-width:480px){body{padding:16px 12px 35px}header,section{padding:18px}h1{font-size:24px}}@media print{body{max-width:none;background:white;padding:0}header,section{break-inside:avoid}textarea{border:0}}
+</style>
+</head>
+<body>
+<header>
+<p class="tag">学习进度快照 · 2026 年 10 月 21 日 · 北京时间</p>
+<h1>回家从这里继续</h1>
+<p><strong>当前停在：准备从 Processor.execute() 往下追一次普通对话调用。</strong></p>
+<p>第 1 天主干已阅读，配置选择问题经过讲解后已表示理解；继承与重写、实际调用、练习和闭卷验收尚未确认完成。不要直接把整天标记为全部掌握。</p>
+<a href="index.html">打开学习中心 →</a>
+</header>
+<section>
+<h2>家里电脑怎么接上</h2>
+<ol>
+<li>已有仓库：在家里的 <code>my</code> 仓库目录运行 <code>git pull --ff-only</code>。若提示本地修改冲突，保留修改，让 Codex 协助处理。</li>
+<li>没有仓库：运行 <code>git clone https://github.com/lvpin1120-maker/my.git</code>，或从 GitHub 下载 ZIP 后解压。</li>
+<li>用家里 Codex 打开这个 <code>my</code> 文件夹。能找到原聊天就继续原聊天；找不到就新建聊天，发送下面的接续指令。</li>
+</ol>
+<p>Git 更新学习文件；这份摘要用于恢复学习上下文，不是完整聊天迁移。浏览器的勾选、笔记和收藏仍需在学习中心“我的学习记录”中导出 JSON，再到另一台电脑导入合并。</p>
+<p>无需在家访问公司电脑的 <code>127.0.0.1:8768</code>。拉取资料后双击本机的 <code>index.html</code> 或本文件即可阅读。</p>
+</section>
+<section>
+<h2>发给家里 Codex 的话</h2>
+<p>选中并复制下面的文字：</p>
+<textarea readonly aria-label="学习接续指令">请先读取当前 my 仓库的 AGENTS.md 和 学习接续.html，按这里的进度继续带我学习，不要从第一天重讲。
+我已读完 Pipeline.process() 主干，理解 business、model、processType 如何选处理配置，以及通过 processKey 查找 Processor。
+下一步从 Processor.execute() 开始，追到 ChatProcessor.doExecute() → doExecuteInternal() → AlibabaChatProcessor.request()，一次只讲一个方法，再出一道题让我自己回答。
+重点帮我理解：为什么 AlibabaChatProcessor 没有自己实现 execute() 也能调用它；为什么执行到 request() 时进入子类实现。
+请先检查家里有没有业务项目源码。没有就用独立的 Java 教学例子练继承与方法重写，不要把教学例子当成公司实际源码，不需要复制公司项目到学习仓库。
+学完后按我的实际回答更新本仓库的学习接续.html，记录掌握情况、未解决的问题和下一次第一步。</textarea>
+</section>
+<section>
+<h2>今天已经讲清楚的部分</h2>
+<ul>
+<li><strong>追踪字段：</strong>这里是 traceId，不是 taskId。传入没有值时生成，有已有值时沿用；当前工具用前缀加 UUID 生成。</li>
+<li><strong>鉴权：</strong>普通路径根据 API Key 查 business 并写入请求。未知 Key 返回鉴权不通过，Pipeline 抛出对应 SystemException，进入第一个 catch 构造错误响应，不再路由。business 与管理端工作空间是否一一对应尚未核对。</li>
+<li><strong>路由：</strong>先按 business + model 找供应商列表；再按 business + model + processType 找 ModelProcessConfig。不同业务可以给同一个模型配置不同接入渠道。</li>
+<li><strong>处理类型：</strong>CHAT 和 CHAT_STREAM 表达普通对话与流式对话，即使模型相同，也需要各自的处理配置。</li>
+<li><strong>处理器选择：</strong>resolveProcessor 从配置取得 processKey（RESPONSES 协议使用专门配置的 responseProcessKey），再从 processorMap 找对象。它不是直接用厂商枚举选择 execute 的所属类。</li>
+<li><strong>Client 与 Processor：</strong>厂商枚举用于查 Client 管理器；processor 是 execute 的调用对象，Client 管理器是传入参数。执行普通对话时再取得具体 Client。</li>
+<li><strong>字段变化：</strong>当前 Pipeline.process() 内没有修改 model；另会补充 platformModel、series 等配置。尚未确认全部下游对字段的处理。</li>
+<li><strong>学习资料更正：</strong>当前 Pipeline 没有独立的限流步骤；普通非流式限流在 ChatProcessor 内，取得具体 Client、熔断判断之后。不要机械记成 Pipeline 内“鉴权→限流→路由”。</li>
+</ul>
+<p class="tag">证据说明：以上实现关系已根据公司电脑当前源码阅读核对。学习者已自行复述部分主干，并表示理解配置选择；未记录实际运行验证或闭卷完成情况。</p>
+</section>
+<section>
+<h2>回家只做这一小段 · 20～30 分钟</h2>
+<p>假设本次配置选中的处理器是 AlibabaChatProcessor，这不表示当前环境实际一定使用它。</p>
+<pre>Pipeline.process()
+  → Processor.execute()
+    → ChatProcessor.doExecute()
+      → ChatProcessor.doExecuteInternal()
+        → AlibabaChatProcessor.request()
+        ← 得到调用结果
+      → 公共收尾与响应处理
+  ← 返回响应</pre>
+<ol>
+<li>看 Processor.execute() 怎样调用 doExecute()。</li>
+<li>看 ChatProcessor.doExecute() 怎样进入 doExecuteInternal()。</li>
+<li>在 doExecuteInternal() 找到 getMoaiClient()、request()、finalizeNonStream()；暂时只认熔断、限流、超时和计费的位置。</li>
+<li>看 AlibabaChatProcessor.request() 的参数构建、HTTP 调用、响应转换三步。没有业务源码时，用教学例子练同样的父子类调用关系。</li>
+</ol>
+<p><strong>验收题：</strong>子类没有自己写 execute()，为什么还能调用它？父类执行流程中调用 request()，为什么会进入子类的实现？先自己回答，再让 Codex 核对。</p>
+</section>
+<section>
+<h2>源码定位与之后再学的内容</h2>
+<p>业务代码在公司工作区的 llm-proxy-moa 项目内，本仓库保存学习资料。家里目录与环境可能不同。若本机确有业务项目，在 IDE 搜索下面的类名即可：</p>
+<ul>
+<li>Pipeline、ModelRouter、ConfigCenter</li>
+<li>Processor、ChatProcessor、AlibabaChatProcessor</li>
+</ul>
+<p>之后逐步补：泛型、方法重写与动态分派、Client 选择、熔断与限流、超时、收尾。今晚不同时展开这些主题。</p>
+</section>
+</body>
+</html>
